@@ -3,4 +3,16 @@ name = "vibe-2025"
 version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "nodeenv>=1.9.1",
+    "langchain-core>=0.3.0",
+    "langchain-openai>=0.2.0",
+    "langsmith>=0.1.107",
+    "python-dotenv>=1.0.1",
+    "pypdf>=4.2.0",
+]
+
+[dependency-groups]
+dev = [
+    "black>=25.9.0",
+]
