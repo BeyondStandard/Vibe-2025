@@ -1,13 +1,13 @@
-from langsmith.schemas import Attachment
 from langchain_openai import ChatOpenAI
-from langsmith import traceable, Client
+from langsmith import Client, traceable
+from langsmith.schemas import Attachment
 
 import pydantic
 import pathlib
-import dotenv
+import fastapi
 import typing
+import dotenv
 import pypdf
-import json
 import io
 import os
 
@@ -25,9 +25,7 @@ class Output(pydantic.BaseModel):
     items: pydantic.conlist(MCQItem, min_length=1, max_length=10)
 
 
-PDF_PATH = pathlib.Path(
-    "/home/mantas/Documents/Personal/Vibe-2025/data/medicine_slides/heart.pdf"
-)
+PDF_PATH = pathlib.Path("data/heart.pdf")
 
 
 def _read_file_bytes(file_path: pathlib.Path) -> bytes:
@@ -48,12 +46,7 @@ def _pdf_text_from_bytes(pdf_bytes: bytes) -> str:
 
 
 @traceable(dangerously_allow_filesystem=True)
-def generate_mcqs_from_pdf(pdf: Attachment, max_questions: int = 10) -> str:
-    """Generate multiple-choice questions from a PDF using a LangSmith prompt.
-
-    The PDF is passed as a LangSmith Attachment for rich tracing.
-    """
-    # Resolve bytes from the attachment (supports byte data or filesystem path via traceable flag)
+def generate_mcqs_from_pdf(pdf: Attachment, max_questions: int = 10) -> Output:
     pdf_data: bytes
     data: typing.Any = getattr(pdf, "data", None)
     if isinstance(data, (bytes, bytearray)):
@@ -64,24 +57,18 @@ def generate_mcqs_from_pdf(pdf: Attachment, max_questions: int = 10) -> str:
         raise TypeError("Unsupported pdf attachment data; expected bytes or file path")
 
     document_text = _pdf_text_from_bytes(pdf_data)
-
     if not document_text:
         document_text = "[PDF text could not be extracted or is empty.]"
 
-    # Pull prompt from LangSmith
     client = Client(
         api_url=os.getenv("LANGSMITH_ENDPOINT"), api_key=os.getenv("LANGSMITH_API_KEY")
     )
     prompt_runnable = client.pull_prompt("vibe-2025")
 
-    # Define structured output schema
-
-    # Use base model and request structured output
     base_model = ChatOpenAI()
     model = base_model.with_structured_output(Output, method="function_calling")
 
     chain = prompt_runnable | model
-    # We provide common variable names; extra keys are ignored by prompts
     result: Output = chain.invoke(
         {
             "document": document_text,
@@ -91,19 +78,26 @@ def generate_mcqs_from_pdf(pdf: Attachment, max_questions: int = 10) -> str:
             "max_questions": max_questions,
         }
     )
-    return json.dumps(result.model_dump(), ensure_ascii=False, indent=2)
+    return result
 
 
-def main() -> None:
+app = fastapi.FastAPI(title="Vibe-2025 MCQ Generator")
+
+
+@app.get("/")
+def root() -> dict[str, str]:
+    return {"status": "ok", "service": "mcq-generator"}
+
+
+@app.get("/health")
+def health() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/mcqs", response_model=Output)
+def mcqs(max_questions: int = 10) -> Output:
     dotenv.load_dotenv()
     pdf_attachment = Attachment(
         mime_type="application/pdf", data=_read_file_bytes(PDF_PATH)
     )
-
-    answer = generate_mcqs_from_pdf(pdf=pdf_attachment, max_questions=10)
-    print("\n=== Answer ===\n")
-    print(answer)
-
-
-if __name__ == "__main__":
-    main()
+    return generate_mcqs_from_pdf(pdf_attachment, max_questions=max_questions)
