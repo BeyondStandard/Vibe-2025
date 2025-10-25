@@ -1,0 +1,27 @@
+version: 2
+project: vibe-2025
+
+commands:
+  docker:
+    help: docker commands
+    commands:
+      build:
+        help: build docker image
+        exec: |
+          docker build -t vibe-2025 fastapi/
+
+      run:
+        help: run docker container
+        deps: [docker.build]
+        exec: |
+          docker run -p 5000:5000 vibe-2025
+
+  post:
+    help: post commands
+    exec: |
+      curl -X POST http://localhost:5000/mcqs \
+        -H "Content-Type: application/json" \
+        -d '{
+          "s3_uri": "s3://hackathon-documents-eggi-1761361617/learning-related/1/MEDICINE/5/18c45c37-d18b-4ae3-9820-9aa64004be8e-mod1_69.pdf",
+          "max_questions": 10
+        }'

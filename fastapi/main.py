@@ -10,6 +10,8 @@ import dotenv
 import pypdf
 import io
 import os
+import boto3
+from botocore.exceptions import BotoCoreError, ClientError
 
 
 # noinspection PyTypeHints
@@ -23,6 +25,11 @@ class MCQItem(pydantic.BaseModel):
 # noinspection PyTypeHints
 class Output(pydantic.BaseModel):
     items: pydantic.conlist(MCQItem, min_length=1, max_length=10)
+
+
+class MCQRequest(pydantic.BaseModel):
+    s3_uri: str
+    max_questions: int = 10
 
 
 PDF_PATH = pathlib.Path("data/heart.pdf")
@@ -43,6 +50,36 @@ def _pdf_text_from_bytes(pdf_bytes: bytes) -> str:
             page_text = ""
         texts.append(page_text)
     return "\n\n".join(texts).strip()
+
+
+def _parse_s3_uri(s3_uri: str) -> tuple[str, str]:
+    if not s3_uri.startswith("s3://"):
+        raise ValueError("Invalid S3 URI; must start with s3://")
+    remainder = s3_uri[5:]
+    if "/" not in remainder:
+        raise ValueError("Invalid S3 URI; missing key path")
+    bucket, key = remainder.split("/", 1)
+    if not bucket or not key:
+        raise ValueError("Invalid S3 URI; bucket or key missing")
+    return bucket, key
+
+
+def _read_s3_file_bytes(s3_uri: str) -> bytes:
+    bucket, key = _parse_s3_uri(s3_uri)
+    session = boto3.session.Session(
+        region_name=os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION")
+    )
+    s3 = session.client(
+        "s3",
+        aws_access_key_id=os.getenv("AWS_ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("AWS_SECRET_ACCESS_KEY"),
+        aws_session_token=os.getenv("AWS_SESSION_TOKEN"),
+    )
+    try:
+        resp = s3.get_object(Bucket=bucket, Key=key)
+        return resp["Body"].read()
+    except (BotoCoreError, ClientError) as e:
+        raise RuntimeError(f"Failed to read S3 object s3://{bucket}/{key}: {e}")
 
 
 @traceable(dangerously_allow_filesystem=True)
@@ -94,10 +131,9 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/mcqs", response_model=Output)
-def mcqs(max_questions: int = 10) -> Output:
+@app.post("/mcqs", response_model=Output)
+def mcqs(body: MCQRequest) -> Output:
     dotenv.load_dotenv()
-    pdf_attachment = Attachment(
-        mime_type="application/pdf", data=_read_file_bytes(PDF_PATH)
-    )
-    return generate_mcqs_from_pdf(pdf_attachment, max_questions=max_questions)
+    pdf_bytes = _read_s3_file_bytes(body.s3_uri)
+    pdf_attachment = Attachment(mime_type="application/pdf", data=pdf_bytes)
+    return generate_mcqs_from_pdf(pdf_attachment, max_questions=body.max_questions)

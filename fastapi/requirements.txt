@@ -6,3 +6,5 @@ langsmith
 python-dotenv
 pypdf
 pydantic
+botocore
+boto3
