@@ -16,9 +16,9 @@ Transform your PDFs into comprehensive MCQs using cutting-edge AI technology
 
 [Features](#-features) •
 [Quick Start](#-quick-start) •
+[grml tasks](#grml-tasks) •
 [API Docs](#-api-documentation) •
-[Docker](#-docker-deployment) •
-[Examples](#-usage-examples)
+[Docker](#-docker-deployment)
 
 </div>
 
@@ -37,7 +37,10 @@ Leverage OpenAI's GPT models via LangChain for intelligent question generation
 Extract and analyze content from PDF documents with pypdf
 
 ☁️ **AWS S3 Integration**  
-Seamlessly fetch PDFs directly from S3 buckets
+Seamlessly fetch PDFs directly from S3 buckets (`POST /mcqs`)
+
+🖥️ **Web Dashboard**  
+Optional React (Vite) UI: learning sessions, uploads, and MCQs via `/api`
 
 </td>
 <td>
@@ -51,6 +54,9 @@ Built with FastAPI for high performance and scalability
 📊 **LangSmith Integration**  
 Track and monitor AI chain performance
 
+💾 **Local persistence**  
+SQLite + on-disk uploads for the web app (no S3 required for the UI flow)
+
 </td>
 </tr>
 </table>
@@ -58,6 +64,8 @@ Track and monitor AI chain performance
 ---
 
 ## 🏗️ Architecture
+
+### Legacy / CLI flow (S3)
 
 ```mermaid
 graph LR
@@ -78,58 +86,75 @@ graph LR
     style G fill:#e1ffe1
 ```
 
+### Web UI flow
+
+```mermaid
+graph LR
+    U[React_Vite] -->|/api_proxy| B[FastAPI]
+    B --> DB[(SQLite)]
+    B --> FS[Upload_dir]
+    B --> E[LangChain_+_OpenAI]
+    E -.-> L[LangSmith]
+    
+    style U fill:#e1f5ff
+    style B fill:#fff4e1
+    style DB fill:#eeeeee
+```
+
 ---
 
 ## 🚀 Quick Start
 
+Requires [grml](https://github.com/desertbit/grml) v2 on your `PATH`. All runnable steps below are **`grml`** tasks defined in [`grml.yaml`](grml.yaml).
+
 ### Prerequisites
 
-- Python 3.13 or higher
-- [UV package manager](https://github.com/astral-sh/uv)
-- OpenAI API key
-- AWS credentials (for S3 access)
-- LangSmith API key (optional, for tracing)
+- Python 3.13+, [uv](https://github.com/astral-sh/uv), Node.js 20+ and npm (installed by tasks as needed)
+- OpenAI API key; optional LangSmith; AWS credentials only if you call `POST /mcqs` with `s3://` URIs
 
-### Installation
+### Clone and install
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/vibe-2025.git
-cd vibe-2025
-
-# Install dependencies with UV
-uv sync
-
-# Or use pip
-pip install -e .
-```
-
-### Environment Setup
-
-Create a `.env` file in the `fastapi` directory:
-
-```env
-# OpenAI Configuration
-OPENAI_API_KEY=sk-...
-
-# LangSmith Configuration (Optional)
-LANGSMITH_API_KEY=ls__...
-LANGSMITH_ENDPOINT=https://api.smith.langchain.com
-
-# AWS Configuration
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-AWS_REGION=us-east-1
-```
-
-### Running Locally
+Clone this repository, `cd` into it, then:
 
 ```bash
-cd fastapi
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+grml install
 ```
 
-The API will be available at `http://localhost:8000`
+### Environment
+
+Create **`fastapi/.env`** from [`fastapi/.env.example`](fastapi/.env.example) and set at least `OPENAI_API_KEY`. Optionally copy [`frontend/.env.example`](frontend/.env.example) to **`frontend/.env`** (demo login overrides, `VITE_API_BASE_URL` if you do not use the Vite proxy).
+
+### Run locally
+
+Use **two terminals** from the repo root:
+
+```bash
+grml dev api
+```
+
+```bash
+grml dev ui
+```
+
+- API: **http://localhost:8000**
+- Web UI: **http://localhost:5173** — default demo login `demo@example.com` / `demo` (overridable via `frontend/.env`)
+
+---
+
+## grml tasks
+
+| Command | Purpose |
+|--------|---------|
+| `grml install` | Install Python (uv) and frontend (npm) dependencies |
+| `grml dev api` | FastAPI with reload on port 8000 |
+| `grml dev ui` | Vite dev server; proxies `/api` to the API |
+| `grml frontend build` | Production frontend build (`tsc` + Vite) |
+| `grml docker build` | Build the API Docker image (repo root context) |
+| `grml docker run` | Run the API container on port 8000 |
+| `grml docker compose` | `docker compose up -d` from `fastapi/` |
+| `grml post mcqs` | Smoke `POST /mcqs` (needs API up, AWS env, valid `s3_uri` in [`grml.yaml`](grml.yaml) if you change the payload) |
+
+Run `grml help` for nested commands and flags.
 
 ---
 
@@ -188,6 +213,10 @@ Generate MCQs from a PDF stored in S3
 }
 ```
 
+#### App API (`/api/…`) — used by the web UI
+
+All prefixed with `/api`. Examples: `POST /api/learning-sessions` (multipart), `GET /api/learning-sessions`, `GET /api/learning-sessions/{id}`, `POST /api/learning-sessions/{id}/mcqs`, `POST /api/documents/upload`, `GET /api/documents/session/{id}`, `DELETE /api/documents/{id}`. See **Swagger UI** for full schemas.
+
 ### Interactive API Docs
 
 Once the server is running, visit:
@@ -198,84 +227,23 @@ Once the server is running, visit:
 
 ## 🐳 Docker Deployment
 
-### Build and Run
+From the **repository root**, with `fastapi/.env` present:
 
 ```bash
-cd fastapi
-
-# Build the image
-docker build -t vibe-2025 .
-
-# Run the container
-docker run -d \
-  --name mcq-generator \
-  -p 8000:8000 \
-  --env-file .env \
-  vibe-2025
+grml docker build
 ```
-
-### Docker Compose
 
 ```bash
-cd fastapi
-docker compose up -d
+grml docker run
 ```
 
-The service will be available at `http://localhost:8000`
-
----
-
-## 💡 Usage Examples
-
-### Python Client
-
-```python
-import requests
-
-# Generate MCQs from a PDF
-response = requests.post(
-    "http://localhost:8000/mcqs",
-    json={
-        "s3_uri": "s3://my-bucket/educational/biology.pdf",
-        "max_questions": 5
-    }
-)
-
-mcqs = response.json()
-for item in mcqs["items"]:
-    print(f"Q: {item['question']}")
-    for i, option in enumerate(item['options']):
-        marker = "✓" if i == item['correct_index'] else " "
-        print(f"  [{marker}] {option}")
-    print(f"Explanation: {item['explanation']}\n")
-```
-
-### cURL
+Compose (detached):
 
 ```bash
-curl -X POST "http://localhost:8000/mcqs" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "s3_uri": "s3://your-bucket/document.pdf",
-    "max_questions": 10
-  }'
+grml docker compose
 ```
 
-### JavaScript/TypeScript
-
-```typescript
-const response = await fetch('http://localhost:8000/mcqs', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    s3_uri: 's3://your-bucket/document.pdf',
-    max_questions: 10
-  })
-});
-
-const data = await response.json();
-console.log(data.items);
-```
+Service URL: **http://localhost:8000**
 
 ---
 
@@ -286,28 +254,19 @@ console.log(data.items);
 ```
 vibe-2025/
 ├── fastapi/
-│   ├── main.py              # FastAPI application
-│   ├── requirements.txt     # Python dependencies
-│   ├── Dockerfile          # Container image
-│   └── compose.yaml        # Docker Compose config
-├── data/                   # Sample data files
-├── pyproject.toml          # Project configuration
-└── uv.lock                # UV lock file
+│   ├── app/                 # FastAPI package (routers, DB, MCQ core)
+│   ├── main.py              # ASGI entry (uvicorn main:app)
+│   ├── Dockerfile
+│   └── compose.yaml
+├── frontend/                # React + Vite (optional UI)
+├── pyproject.toml
+├── uv.lock
+└── grml.yaml                # grml v2 task definitions
 ```
 
-### Development Setup
+### Setup
 
-```bash
-# Install dev dependencies
-uv sync --group dev
-
-# Format code
-black .
-
-# Run the development server
-cd fastapi
-uvicorn main:app --reload
-```
+Use **`grml install`** after cloning. For day-to-day work use **`grml dev api`** / **`grml dev ui`**; use **`grml frontend build`** before shipping the frontend bundle.
 
 ---
 
@@ -320,6 +279,7 @@ uvicorn main:app --reload
 - **FastAPI** - Modern web framework for building APIs
 - **Uvicorn** - ASGI server implementation
 - **Pydantic** - Data validation using Python type hints
+- **SQLAlchemy** - ORM / SQLite for the web app API
 
 ### AI/ML
 - **LangChain Core** - Building applications with LLMs
@@ -335,6 +295,10 @@ uvicorn main:app --reload
 
 ### Utilities
 - **python-dotenv** - Environment variable management
+- **python-multipart** - Form / file uploads
+
+### Frontend (optional)
+- **React**, **Vite**, **TanStack Query**, **React Router**
 
 </details>
 
@@ -347,18 +311,13 @@ uvicorn main:app --reload
 - Implement rate limiting for production deployments
 - Validate and sanitize all input data
 - Use HTTPS in production environments
+- The bundled web UI uses **demo auth** only — replace with real auth before production
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+Contributions are welcome. Fork the repository on GitHub, push a branch with your changes, and open a pull request.
 
 ---
 

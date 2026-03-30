@@ -1,12 +1,17 @@
 services:
-  service1:
-    restart: always
+  api:
+    restart: unless-stopped
     build:
-      context: .
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: fastapi/Dockerfile
     ports:
       - mode: ingress
-        target: 5000
-        published: 5000
+        target: 8000
+        published: 8000
+    env_file:
+      - .env
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3

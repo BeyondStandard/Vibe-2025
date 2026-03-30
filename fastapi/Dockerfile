@@ -1,29 +1,19 @@
-# Use an official Python runtime as a parent image
-FROM library/python:3.12-slim
+# Build from repository root:
+#   docker build -f fastapi/Dockerfile -t vibe-2025 .
+FROM python:3.13-slim
 
-# Set the working directory to /app
-WORKDIR /app
+RUN pip install --no-cache-dir uv
 
-# Install required C++11 libraries and ca-certificates
-RUN apt-get update \
-      && apt-get install -y \
-          --no-install-recommends \
-            build-essential \
-            python3-dev \
-            ca-certificates \
-            curl \
-      && rm -rf /var/lib/apt/lists/*
+WORKDIR /repo
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-group dev
 
-# Install any needed packages specified in requirements.txt
-COPY requirements.txt /app/
-RUN pip install --no-cache-dir -r requirements.txt
+COPY fastapi /repo/fastapi
 
-# Copy the current directory contents into the container at /app
-COPY . /app
+WORKDIR /repo/fastapi
+ENV PATH="/repo/.venv/bin:$PATH"
+ENV PYTHONPATH=/repo/fastapi
 
-# Make port 5000 available to the world outside this container
-EXPOSE 5000
+EXPOSE 8000
 
-# Run main when the container launches
-ENTRYPOINT ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000"]
-USER nobody
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]

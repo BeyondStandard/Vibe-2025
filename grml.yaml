@@ -2,26 +2,56 @@ version: 2
 project: vibe-2025
 
 commands:
+  install:
+    help: install Python deps (uv) and frontend (npm)
+    exec: |
+      uv sync --group dev
+      npm install --prefix frontend
+
+  dev:
+    help: local development servers (use subcommands api / ui)
+    commands:
+      api:
+        help: FastAPI with reload on port 8000
+        exec: |
+          cd fastapi && uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
+      ui:
+        help: Vite dev server (proxies /api to FastAPI on 8000)
+        exec: |
+          cd frontend && npm run dev
+
   docker:
-    help: docker commands
+    help: API container (use subcommands build / run / compose)
     commands:
       build:
-        help: build docker image
+        help: build image from repo root context
         exec: |
-          docker build -t vibe-2025 fastapi/
-
+          docker build -f fastapi/Dockerfile -t vibe-2025 .
       run:
-        help: run docker container
-        deps: [docker.build]
+        help: run container on port 8000 (expects fastapi/.env)
+        deps:
+          - docker.build
         exec: |
-          docker run -p 5000:5000 vibe-2025
+          docker run --rm -p 8000:8000 --env-file fastapi/.env vibe-2025
+      compose:
+        help: docker compose up -d from fastapi/ (expects fastapi/.env)
+        exec: |
+          cd fastapi && docker compose up -d
 
   post:
-    help: post commands
-    exec: |
-      curl -X POST http://localhost:5000/mcqs \
-        -H "Content-Type: application/json" \
-        -d '{
-          "s3_uri": "s3://hackathon-documents-eggi-1761361617/learning-related/1/MEDICINE/5/18c45c37-d18b-4ae3-9820-9aa64004be8e-mod1_69.pdf",
-          "max_questions": 10
-        }'
+    help: HTTP smoke requests (use subcommand mcqs)
+    commands:
+      mcqs:
+        help: POST /mcqs — requires API on :8000, AWS env, real s3_uri in the script if needed
+        exec: |
+          curl -sS -X POST http://localhost:8000/mcqs \
+            -H "Content-Type: application/json" \
+            -d '{"s3_uri":"s3://your-bucket/path/to.pdf","max_questions":10}'
+
+  frontend:
+    help: frontend tooling (use subcommand build)
+    commands:
+      build:
+        help: TypeScript check and Vite production build
+        exec: |
+          npm --prefix frontend run build
